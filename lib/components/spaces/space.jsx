@@ -1,70 +1,112 @@
-import { React } from 'uebersicht'
-
+import * as Uebersicht from 'uebersicht'
 import OpenedApps from './opened-apps.jsx'
 import SpaceOptions from './space-options.jsx'
-import { classnames, clickEffect, filterApps } from '../../utils'
+import * as Utils from '../../utils'
+import * as Yabai from '../../yabai'
+import * as Settings from '../../settings'
 
-import { goToSpace } from '../../yabai'
-import { getSettings } from '../../settings'
-
-const { useState } = React
+const settings = Settings.get()
 
 const Space = ({ space, display, windows, displayIndex, SIPDisabled, lastOfSpace }) => {
-  const [hovered, setHovered] = useState(false)
-  const [noDelay, setNoDelay] = useState(false)
+  const labelRef = Uebersicht.React.useRef()
+  const [hovered, setHovered] = Uebersicht.React.useState(false)
+  const [noDelay, setNoDelay] = Uebersicht.React.useState(false)
+  const [editable, setEditable] = Uebersicht.React.useState(false)
+  const { index, label, focused, visible, 'native-fullscreen': fullscreen, type } = space
+  const [spaceLabel, setSpaceLabel] = Uebersicht.React.useState(label?.length ? label : index)
 
-  const settings = getSettings()
   const { spacesDisplay } = settings
-  const { displayAllSpacesOnAllScreens, exclusionsAsRegex } = spacesDisplay
+  const {
+    displayAllSpacesOnAllScreens,
+    exclusionsAsRegex,
+    displayStickyWindowsSeparately,
+    hideDuplicateAppsInSpaces,
+    showOptionsOnHover
+  } = spacesDisplay
   if (!displayAllSpacesOnAllScreens && display !== space.display) return null
 
-  const { index, label, focused, visible, 'native-fullscreen': fullscreen, type } = space
   const exclusions = exclusionsAsRegex ? spacesDisplay.exclusions : spacesDisplay.exclusions.split(', ')
   const titleExclusions = exclusionsAsRegex ? spacesDisplay.titleExclusions : spacesDisplay.titleExclusions.split(', ')
 
   const onMouseEnter = (e) => {
+    if (!showOptionsOnHover) return
+    const { altKey, metaKey } = e
+    if (altKey) return
     setHovered(true)
-    if (e.metaKey) setNoDelay(true)
+    if (metaKey) setNoDelay(true)
   }
   const onMouseLeave = () => {
     setHovered(false)
     setNoDelay(false)
+    setEditable(false)
+    window.getSelection().removeAllRanges()
   }
   const onClick = (e) => {
-    if (focused === 1) return
-    goToSpace(index)
-    clickEffect(e)
+    onMouseLeave(e)
+    if (e.altKey) {
+      setEditable(true)
+      labelRef.current?.select()
+    } else {
+      if (focused === 1) return
+      Yabai.goToSpace(index)
+      Utils.clickEffect(e)
+    }
+  }
+  const onRightClick = (e) => {
+    setHovered(true)
+    setNoDelay(true)
+  }
+  const onChange = (e) => {
+    if (!editable) return
+    const newLabel = e.target.value
+    setSpaceLabel(newLabel)
+    Yabai.renameSpace(index, newLabel)
   }
 
-  const apps = windows.filter(
-    (app) => app.space === index && filterApps(app, exclusions, titleExclusions, exclusionsAsRegex)
+  const { nonStickyWindows: apps, stickyWindows } = Utils.stickyWindowWorkaround(
+    windows,
+    hideDuplicateAppsInSpaces,
+    display,
+    index,
+    exclusions,
+    titleExclusions,
+    exclusionsAsRegex
   )
+  const allApps = [...apps, ...stickyWindows]
 
-  if (!focused && !visible && apps.length === 0 && spacesDisplay.hideEmptySpaces) return null
+  if (!focused && !visible && !allApps.length && spacesDisplay.hideEmptySpaces) return null
 
-  const classes = classnames(`space space--${type}`, {
+  const classes = Utils.classnames(`space space--${type}`, {
     'space--focused': focused === 1,
     'space--visible': visible === 1,
     'space--fullscreen': fullscreen === 1,
     'space--hovered': hovered,
     'space--no-delay': noDelay,
-    'space--empty': apps.length === 0
+    'space--empty': allApps.length,
+    'space--editable': editable
   })
 
-  const spaceLabel = label && label !== '' ? label : index
+  const labelSize = typeof spaceLabel === 'number' ? spaceLabel.toString().length : spaceLabel.length
 
   return (
-    <>
+    <Uebersicht.React.Fragment>
       {spacesDisplay.displayAllSpacesOnAllScreens && lastOfSpace && <div className="spaces__separator" />}
-      <div className={classes} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-        <button className="space__inner" onClick={onClick}>
-          <span className="space__label">{spaceLabel}</span> <OpenedApps type={type} apps={apps} />
+      <div className={classes} onMouseLeave={onMouseLeave} onMouseEnter={onMouseEnter}>
+        <button className="space__inner" onClick={onClick} onContextMenu={onRightClick}>
+          <input
+            ref={labelRef}
+            type="text"
+            className="space__label"
+            onChange={onChange}
+            value={spaceLabel}
+            style={{ width: `${labelSize}ch` }}
+            readOnly={!editable}
+          />
+          <OpenedApps apps={displayStickyWindowsSeparately ? apps : allApps} />
         </button>
-        {!spacesDisplay.hideSpacesOptions && SIPDisabled && (
-          <SpaceOptions index={index} setHovered={setHovered} displayIndex={displayIndex} />
-        )}
+        {SIPDisabled && <SpaceOptions index={index} setHovered={setHovered} displayIndex={displayIndex} />}
       </div>
-    </>
+    </Uebersicht.React.Fragment>
   )
 }
 
