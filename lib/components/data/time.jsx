@@ -13,7 +13,7 @@ export { timeStyles } from '../../styles/components/data/time'
 
 const { useState } = React
 
-const refreshFrequency = 1000
+const refreshFrequency = 5000
 
 const displayNotificationCenter = () =>
   run(
